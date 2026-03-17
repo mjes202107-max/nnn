@@ -68,7 +68,9 @@ def create_schedule_excel(filename="nnn.xlsx"):
         # 標題樣式
         header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
         header_font = Font(bold=True, color="FFFFFF", size=12)
-        center_alignment = Alignment(horizontal="center", vertical="center")
+        center_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        left_alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        center_top_alignment = Alignment(horizontal="center", vertical="top", wrap_text=True)
         thin_border = Border(
             left=Side(style='thin'),
             right=Side(style='thin'),
@@ -85,8 +87,26 @@ def create_schedule_excel(filename="nnn.xlsx"):
             cell.alignment = center_alignment
             cell.border = thin_border
         
+        # 需要合併內容與講者的關鍵字
+        merge_content_speaker = ["報到", "開場致詞", "Break", "Lunch", "Dinner"]
+        
+        # 淺藍色填充
+        light_blue_fill = PatternFill(start_color="B4C7E7", end_color="B4C7E7", fill_type="solid")
+        
+        # 例外行：09:50的張教授、13:30的研究團隊、11:40的研究團隊、15:30的研究團隊、18:50的陳教授、16:20的賴博士
+        exceptions = [
+            ("09:50~10:20", "5G 專網與企業數位轉型的實踐之路", "張教授"),
+            ("11:40~12:10", "雲原生架構在 5G 核心網路中的應用", "研究團隊"),
+            ("13:30~14:00", "毫米波通訊技術與室內定位整合應用", "研究團隊"),
+            ("15:30~16:00", "綜合座談與交流", "研究團隊"),
+            ("16:20~17:00", "Energy-Efficient Resource Allocation in O-RAN Architecture", "賴博士"),
+            ("18:50~19:30", "Digital Twin-Enabled Intelligent RAN Management", "陳教授")
+        ]
+        
         # 寫入數據
-        for row_idx, item in enumerate(schedule_data, start=2):
+        for data_idx, item in enumerate(schedule_data):
+            row_idx = data_idx + 2  # Excel行號從2開始
+            
             # 時間
             time_cell = ws.cell(row=row_idx, column=1)
             time_cell.value = item["time"]
@@ -96,14 +116,60 @@ def create_schedule_excel(filename="nnn.xlsx"):
             # 內容
             content_cell = ws.cell(row=row_idx, column=2)
             content_cell.value = item["content"]
-            content_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
             content_cell.border = thin_border
             
             # 講者
             speaker_cell = ws.cell(row=row_idx, column=3)
             speaker_cell.value = item["speaker"]
-            speaker_cell.alignment = center_alignment
             speaker_cell.border = thin_border
+            
+            # 判斷是否需要合併內容與講者
+            if item["content"] in merge_content_speaker:
+                # 合併 B 和 C 欄
+                ws.merge_cells(f'B{row_idx}:C{row_idx}')
+                # 設定對齐 - 開場致詞不置中，其他置中
+                if item["content"] == "開場致詞":
+                    content_cell.alignment = left_alignment
+                else:
+                    content_cell.alignment = center_alignment
+            else:
+                # 普通行
+                content_cell.alignment = left_alignment
+                speaker_cell.alignment = center_alignment
+            
+            # 處理背景顏色：奇數欄位（從9:00開始的第1、3、5...）著淺藍
+            # data_idx是0-indexed，0、2、4、6...是奇數欄位
+            is_odd_position = (data_idx % 2 == 0)
+            is_exception = (item["time"], item["content"], item["speaker"]) in exceptions
+            is_merged = item["content"] in merge_content_speaker
+            has_speaker = item["speaker"] not in ["無"]
+            
+            # 著色規則：奇數欄位 且 (沒有講者欄 或 是例外)
+            should_color = is_odd_position and (is_merged or is_exception)
+            
+            if should_color:
+                # 著淺藍色到整行
+                for col in range(1, 4):
+                    ws.cell(row=row_idx, column=col).fill = light_blue_fill
+        
+        # 處理相鄰相同講者的合併
+        # 找出相鄰的相同講者行並合併
+        merge_speakers = {}
+        for idx in range(len(schedule_data) - 1):
+            current_speaker = schedule_data[idx]["speaker"]
+            next_speaker = schedule_data[idx + 1]["speaker"]
+            
+            # 檢查是否是可合併的講者且相鄰相同
+            if current_speaker in ["研究團隊", "賴博士", "陳教授"] and current_speaker == next_speaker:
+                row1 = idx + 2
+                row2 = idx + 3
+                
+                # 只在內容不需要合併時才合併講者欄
+                if (schedule_data[idx]["content"] not in merge_content_speaker and 
+                    schedule_data[idx + 1]["content"] not in merge_content_speaker):
+                    ws.merge_cells(f'C{row1}:C{row2}')
+                    cell = ws.cell(row=row1, column=3)
+                    cell.alignment = center_top_alignment
         
         # 設定列高
         ws.row_dimensions[1].height = 25
